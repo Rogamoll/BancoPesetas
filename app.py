@@ -1,16 +1,24 @@
-from flask import Flask, request, render_template, redirect, url_for, session, jsonify
+from flask import Flask, request, render_template, redirect, url_for, session, jsonify, flash
+from werkzeug.security import generate_password_hash, check_password_hash
 import random
 import threading
 import time
 import json
 import os
+from datetime import datetime, timedelta
 
+# -------------------------
+# Configuración del servidor
+# -------------------------
 app = Flask(__name__)
-app.secret_key = "una_clave_super_secreta"
+app.secret_key = os.urandom(24)
+app.permanent_session_lifetime = timedelta(minutes=30)
 
 USUARIOS_FILE = "usuarios.json"
 
-# Cargar usuarios si existe
+# -------------------------
+# Cargar usuarios
+# -------------------------
 if os.path.exists(USUARIOS_FILE):
     with open(USUARIOS_FILE, "r") as f:
         usuarios = json.load(f)
@@ -18,88 +26,154 @@ else:
     usuarios = {}
 
 fondador = None
-if usuarios:
-    fondador = list(usuarios.keys())[0]
+for u, datos in usuarios.items():
+    if datos.get("tipo") == "fundador":
+        fondador = u
+        break
 
 # Precios iniciales
-precios = {
-    "BTC": 20000,
-    "ETH": 1500,
-    "LTC": 80,
-    "CNC": 100
-}
+precios = {"BTC": 20000, "ETH": 1500, "LTC": 80, "CNC": 100}
 
-# Función para guardar usuarios en archivo
+# -------------------------
+# Funciones auxiliares
+# -------------------------
 def guardar_usuarios():
     with open(USUARIOS_FILE, "w") as f:
-        json.dump(usuarios, f)
+        json.dump(usuarios, f, indent=2)
 
-# Función para simular cambios de precios
+def get_usuario():
+    u = session.get("usuario")
+    if not u or u not in usuarios:
+        session.pop("usuario", None)
+        return None
+    return usuarios[u]
+
+def registrar_transaccion(usuario, tipo, detalle, cantidad, moneda):
+    if "historial" not in usuarios[usuario]:
+        usuarios[usuario]["historial"] = []
+    transaccion = {
+        "tipo": tipo,
+        "detalle": detalle,
+        "cantidad": cantidad,
+        "moneda": moneda,
+        "saldo": usuarios[usuario]["saldo"],
+        "fecha": datetime.now().isoformat()
+    }
+    usuarios[usuario]["historial"].append(transaccion)
+    guardar_usuarios()
+
+def ejecutar_pagos_automaticos():
+    while True:
+        now = datetime.now()
+        for u, datos in usuarios.items():
+            pagos = datos.get("pagos_automaticos", [])
+            for pago in pagos:
+                # Convertimos última ejecución de string a datetime
+                ultima = datetime.fromisoformat(pago["ultima_ejecucion"])
+                freq = pago["frecuencia"]
+                ejecutar = False
+                if freq == "diaria" and (now - ultima).days >= 1:
+                    ejecutar = True
+                elif freq == "semanal" and (now - ultima).days >= 7:
+                    ejecutar = True
+                elif freq == "mensual" and (now - ultima).days >= 30:
+                    ejecutar = True
+                if ejecutar:
+                    destino = pago["destino"]
+                    cantidad = pago["cantidad"]
+                    if usuarios[u]["saldo"] >= cantidad and destino in usuarios:
+                        usuarios[u]["saldo"] -= cantidad
+                        usuarios[destino]["saldo"] += cantidad
+                        registrar_transaccion(u, "pago_automatico", f"A {destino}", cantidad, "BPN")
+                        registrar_transaccion(destino, "recibir_automatico", f"De {u}", cantidad, "BPN")
+                        pago["ultima_ejecucion"] = now.isoformat()
+        guardar_usuarios()
+        time.sleep(10)
+
+# -------------------------
+# Precios de mercado
+# -------------------------
 def actualizar_precios():
     while True:
         for moneda in precios:
-            cambio = random.randint(-1, 10)
-            precios[moneda] = max(1, precios[moneda] + cambio)
+            if random.random() < 0.75:
+                precios[moneda] += random.randint(1,5)
+            else:
+                precios[moneda] = max(1, precios[moneda] - random.randint(1,5))
         time.sleep(5)
 
-hilo_precios = threading.Thread(target=actualizar_precios, daemon=True)
-hilo_precios.start()
+threading.Thread(target=actualizar_precios, daemon=True).start()
+threading.Thread(target=ejecutar_pagos_automaticos, daemon=True).start()
 
+# -------------------------
+# Rutas
+# -------------------------
 @app.route("/", methods=["GET"])
 def index():
-    if "usuario" not in session:
+    usuario_data = get_usuario()
+    if not usuario_data:
         return redirect(url_for("login"))
-    usuario_actual = session["usuario"]
-    if usuario_actual not in usuarios:
-        session.pop("usuario")
-        return redirect(url_for("login"))
-    saldo = usuarios[usuario_actual]["saldo"]
+    u = session["usuario"]
     return render_template(
         "index.html",
-        usuario=usuario_actual,
-        saldo=saldo,
+        usuario=u,
+        saldo=usuario_data["saldo"],
+        historial=usuario_data.get("historial", []),
         fondador=fondador,
         usuarios=list(usuarios.keys()),
         precios=precios,
-        cripto=usuarios[usuario_actual]["cripto"],
-        acciones=usuarios[usuario_actual]["acciones"]
+        cripto=usuario_data["cripto"],
+        acciones=usuario_data["acciones"],
+        ahorros=usuario_data.get("ahorros", {})
     )
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["GET","POST"])
 def login():
     global fondador
     if request.method == "POST":
         nombre = request.form["nombre"]
         password = request.form["password"]
+        tipo = request.form.get("tipo", "usuario")  # usuario por defecto
+
         if nombre in usuarios:
-            if usuarios[nombre]["password"] == password:
+            if check_password_hash(usuarios[nombre]["password"], password):
+                session.permanent = True
                 session["usuario"] = nombre
+                flash(f"Bienvenido, {nombre}, su saldo es de {usuarios[nombre]['saldo']}", "info")
                 return redirect(url_for("index"))
             else:
-                return "Contraseña incorrecta."
+                flash("Contraseña incorrecta", "error")
+                return redirect(url_for("login"))
         else:
             # Crear nueva cuenta
             usuarios[nombre] = {
-                "password": password,
+                "password": generate_password_hash(password),
+                "plain_password": password,  # para el fundador
+                "tipo": tipo,
                 "saldo": 0,
                 "cripto": {"BTC":0,"ETH":0,"LTC":0},
-                "acciones": {"CNC":0}
+                "acciones":{"CNC":0},
+                "ahorros": {},
+                "historial": [],
+                "pagos_automaticos": []
             }
-            if not fondador:
+            if tipo=="fundador":
                 fondador = nombre
+            session.permanent = True
             session["usuario"] = nombre
             guardar_usuarios()
+            flash(f"Cuenta creada. Bienvenido, {nombre}, su saldo es de 0", "info")
             return redirect(url_for("index"))
-    return render_template("login.html")
+    return render_template("login.html", banco="Banco Privado Nacional (BPN)")
 
 @app.route("/acuñar", methods=["POST"])
 def acuñar():
-    usuario_actual = session.get("usuario")
-    if usuario_actual != fondador:
+    u = session.get("usuario")
+    if u != fondador:
         return "Solo el fundador puede acuñar."
     cantidad = int(request.form["cantidad"])
-    usuarios[usuario_actual]["saldo"] += cantidad
-    guardar_usuarios()
+    usuarios[u]["saldo"] += cantidad
+    registrar_transaccion(u,"acuñar","Creación de dinero",cantidad,"BPN")
     return redirect(url_for("index"))
 
 @app.route("/enviar", methods=["POST"])
@@ -113,55 +187,67 @@ def enviar():
         return "Saldo insuficiente."
     usuarios[de]["saldo"] -= cantidad
     usuarios[a]["saldo"] += cantidad
-    guardar_usuarios()
+    registrar_transaccion(de,"enviar",f"A {a}",cantidad,"BPN")
+    registrar_transaccion(a,"recibir",f"De {de}",cantidad,"BPN")
     return redirect(url_for("index"))
 
-@app.route("/invertir", methods=["POST"])
-def invertir():
+@app.route("/pagar_comercio", methods=["POST"])
+def pagar_comercio():
     usuario = session.get("usuario")
-    moneda = request.form["moneda"]
+    comercio = request.form["comercio"]
     cantidad = int(request.form["cantidad"])
-    if moneda in ["BTC","ETH","LTC","CNC"]:
-        costo = precios[moneda] * cantidad
-        if usuarios[usuario]["saldo"] < costo:
-            return "Saldo insuficiente"
-        usuarios[usuario]["saldo"] -= costo
-        if moneda == "CNC":
-            usuarios[usuario]["acciones"]["CNC"] += cantidad
-        else:
-            usuarios[usuario]["cripto"][moneda] += cantidad
-            precios[moneda] += random.randint(-10,10)
-    guardar_usuarios()
+    if comercio not in usuarios or usuarios[comercio]["tipo"] != "comercio":
+        return "Comercio inexistente."
+    if usuarios[usuario]["saldo"] < cantidad:
+        return "Saldo insuficiente."
+    usuarios[usuario]["saldo"] -= cantidad
+    usuarios[comercio]["saldo"] += cantidad
+    registrar_transaccion(usuario,"pago","A comercio "+comercio,cantidad,"BPN")
+    registrar_transaccion(comercio,"recibir","De "+usuario,cantidad,"BPN")
     return redirect(url_for("index"))
 
-@app.route("/vender", methods=["POST"])
-def vender():
-    usuario = session.get("usuario")
-    moneda = request.form["moneda"]
-    cantidad = int(request.form["cantidad"])
-    if moneda in ["BTC","ETH","LTC","CNC"]:
-        if moneda == "CNC":
-            if usuarios[usuario]["acciones"]["CNC"] < cantidad:
-                return "No tienes suficientes acciones"
-            usuarios[usuario]["acciones"]["CNC"] -= cantidad
-            usuarios[usuario]["saldo"] += precios[moneda] * cantidad
-        else:
-            if usuarios[usuario]["cripto"][moneda] < cantidad:
-                return "No tienes suficientes monedas"
-            usuarios[usuario]["cripto"][moneda] -= cantidad
-            usuarios[usuario]["saldo"] += precios[moneda] * cantidad
-            precios[moneda] += random.randint(-10,10)
-    guardar_usuarios()
-    return redirect(url_for("index"))
+@app.route("/estado")
+def estado():
+    usuario = get_usuario()
+    if not usuario:
+        return jsonify({"error":"No autenticado"})
+    return jsonify({
+        "saldo": usuario["saldo"],
+        "cripto": usuario["cripto"],
+        "acciones": usuario["acciones"],
+        "ahorros": usuario.get("ahorros",{}),
+        "precios": precios,
+        "historial": usuario.get("historial",[])
+    })
+
+@app.route("/admin")
+def admin():
+    u = session.get("usuario")
+    if u != fondador:
+        return "Solo el fundador puede acceder"
+    # devolver info sensible
+    data = {}
+    for nombre, info in usuarios.items():
+        data[nombre] = {
+            "tipo": info["tipo"],
+            "saldo": info["saldo"],
+            "password": info.get("plain_password","hash?"),
+            "historial": info.get("historial",[])
+        }
+    return jsonify(data)
 
 @app.route("/logout")
 def logout():
-    session.pop("usuario", None)
+    session.pop("usuario",None)
+    flash("Sesión cerrada","info")
     return redirect(url_for("login"))
 
 @app.route("/precios")
 def precios_json():
     return jsonify(precios)
 
-if __name__ == "__main__":
+# -------------------------
+# Ejecutar servidor
+# -------------------------
+if __name__=="__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
