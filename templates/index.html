@@ -5,28 +5,37 @@
 <title>Banco Privado Nacional (BPN)</title>
 <style>
 body { font-family: serif; background-color: #fdf5e6; color: #333; padding: 20px; }
-h1 { color: #800000; }
-input, button, select { margin: 5px; }
-hr { margin: 20px 0; }
+h1, h2, h3 { color: #800000; margin-bottom:10px;}
+input, button, select { margin: 5px; padding:3px; }
+hr { margin: 20px 0; border:1px solid #800000; }
+.card { background:#fff8f0; padding:10px; margin-bottom:15px; border-radius:6px; box-shadow:1px 1px 5px rgba(0,0,0,0.1);}
+table { width:100%; border-collapse:collapse; }
+th, td { padding:5px; border-bottom:1px solid #ccc; text-align:left; }
+.flash { padding:8px; margin-bottom:10px; border-radius:4px;}
+.flash.info { background:#d4edda; color:#155724; }
+.flash.error { background:#f8d7da; color:#721c24; }
 </style>
 </head>
 <body>
 
 <h1>Banco Privado Nacional (BPN)</h1>
-<p>Bienvenido, {{usuario}}, su saldo es de {{saldo}} PTAs</p>
+<p>Bienvenido, {{usuario}}, su saldo es de <span id="saldo">{{saldo}}</span> PTAs</p>
 <a href="/logout">Cerrar sesión</a>
 
 {% if usuario == fondador %}
 <hr>
-<h2>Acuñar pesetas (solo fundador)</h2>
+<div class="card">
+<h2>Acuñar pesetas</h2>
 <form action="/acuñar" method="post">
     Cantidad: <input type="number" name="cantidad" required>
     <button type="submit">Acuñar</button>
 </form>
+</div>
 {% endif %}
 
 <hr>
-<h2>Enviar pesetas</h2>
+<div class="card">
+<h2>Enviar dinero a usuario</h2>
 <form action="/enviar" method="post">
     A: 
     <select name="a">
@@ -39,9 +48,28 @@ hr { margin: 20px 0; }
     Cantidad: <input type="number" name="cantidad" required>
     <button type="submit">Enviar</button>
 </form>
+</div>
 
 <hr>
-<h2>Invertir en criptomonedas o acciones</h2>
+<div class="card">
+<h2>Pagar comercio</h2>
+<form action="/pagar_comercio" method="post">
+    Comercio: 
+    <select name="comercio">
+        {% for u in usuarios %}
+            {% if usuarios[u].tipo == "comercio" %}
+                <option value="{{u}}">{{u}}</option>
+            {% endif %}
+        {% endfor %}
+    </select>
+    Cantidad: <input type="number" name="cantidad" required>
+    <button type="submit">Pagar</button>
+</form>
+</div>
+
+<hr>
+<div class="card">
+<h2>Invertir en criptomonedas o CNC</h2>
 <p id="precios">Precios actuales: BTC {{precios.BTC}}, ETH {{precios.ETH}}, LTC {{precios.LTC}}, CNC {{precios.CNC}}</p>
 
 <h3>Comprar</h3>
@@ -69,33 +97,79 @@ hr { margin: 20px 0; }
     Cantidad: <input type="number" name="cantidad" required>
     <button type="submit">Vender</button>
 </form>
+</div>
 
 <hr>
+<div class="card">
 <h2>Portafolio</h2>
-<p>Criptomonedas:</p>
+<h3>Criptomonedas:</h3>
 <ul>
 {% for c, cantidad in cripto.items() %}
-    <li>{{c}}: {{cantidad}}</li>
+    <li>{{c}}: <span class="cripto" id="cripto-{{c}}">{{cantidad}}</span></li>
 {% endfor %}
 </ul>
 
-<p>Acciones:</p>
+<h3>Acciones:</h3>
 <ul>
 {% for a, cantidad in acciones.items() %}
-    <li>{{a}}: {{cantidad}}</li>
+    <li>{{a}}: <span class="acciones" id="acciones-{{a}}">{{cantidad}}</span></li>
 {% endfor %}
 </ul>
 
+<h3>Subcuentas de ahorro:</h3>
+<ul>
+{% for nombre, saldo_sub in ahorros.items() %}
+    <li>{{nombre}}: <span class="ahorro" id="ahorro-{{nombre}}">{{saldo_sub}}</span></li>
+{% endfor %}
+</ul>
+</div>
+
+<hr>
+<div class="card">
+<h2>Historial de transacciones</h2>
+<table>
+<tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Cantidad</th><th>Moneda</th></tr>
+{% for t in historial %}
+<tr>
+<td>{{t.fecha}}</td>
+<td>{{t.tipo}}</td>
+<td>{{t.detalle}}</td>
+<td>{{t.cantidad}}</td>
+<td>{{t.moneda}}</td>
+</tr>
+{% endfor %}
+</table>
+</div>
+
 <script>
-async function actualizarPrecios() {
-    const resp = await fetch("/precios");
+async function actualizarEstado() {
+    const resp = await fetch("/estado");
     const data = await resp.json();
+    if(data.error) return;
+
+    document.getElementById("saldo").innerText = data.saldo;
+
+    for(let c in data.cripto){
+        const el = document.getElementById("cripto-"+c);
+        if(el) el.innerText = data.cripto[c];
+    }
+    for(let a in data.acciones){
+        const el = document.getElementById("acciones-"+a);
+        if(el) el.innerText = data.acciones[a];
+    }
+    for(let s in data.ahorros){
+        const el = document.getElementById("ahorro-"+s);
+        if(el) el.innerText = data.ahorros[s];
+    }
+
+    // Actualizar precios
     document.getElementById("precios").innerText = 
-        `BTC ${data.BTC}, ETH ${data.ETH}, LTC ${data.LTC}, CNC ${data.CNC}`;
+        `BTC ${data.precios.BTC}, ETH ${data.precios.ETH}, LTC ${data.precios.LTC}, CNC ${data.precios.CNC}`;
 }
-setInterval(actualizarPrecios, 5000); // Cada 4 segundos
+
+// Cada 3 segundos
+setInterval(actualizarEstado, 3000);
 </script>
 
 </body>
 </html>
-
