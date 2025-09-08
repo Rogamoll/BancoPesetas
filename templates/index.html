@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Banco de Pesetas (PTA)</title>
+<title>Banco Privado Nacional (BPN)</title>
 <style>
 body { font-family: serif; background-color: #fdf5e6; color: #333; padding: 20px; }
 h1 { color: #800000; }
@@ -12,8 +12,8 @@ hr { margin: 20px 0; }
 </head>
 <body>
 
-<h1>Banco de Pesetas (PTA)</h1>
-<p>Bienvenido, {{usuario}}. Saldo: {{saldo}} PTA</p>
+<h1>Banco Privado Nacional (BPN)</h1>
+<p>Bienvenido, {{usuario}}, su saldo es de {{saldo}} PTAs</p>
 <a href="/logout">Cerrar sesión</a>
 
 {% if usuario == fondador %}
@@ -41,7 +41,7 @@ hr { margin: 20px 0; }
 </form>
 
 <hr>
-<h2>Invertir en criptomonedas o CNC</h2>
+<h2>Invertir en criptomonedas o acciones</h2>
 <p id="precios">Precios actuales: BTC {{precios.BTC}}, ETH {{precios.ETH}}, LTC {{precios.LTC}}, CNC {{precios.CNC}}</p>
 
 <h3>Comprar</h3>
@@ -93,7 +93,7 @@ async function actualizarPrecios() {
     document.getElementById("precios").innerText = 
         `BTC ${data.BTC}, ETH ${data.ETH}, LTC ${data.LTC}, CNC ${data.CNC}`;
 }
-setInterval(actualizarPrecios, 5000); // Cada 5 segundos
+setInterval(actualizarPrecios, 5000); // Cada 4 segundos
 </script>
 
 </body>
