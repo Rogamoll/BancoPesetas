@@ -38,7 +38,7 @@ def guardar_usuarios():
 def actualizar_precios():
     while True:
         for moneda in precios:
-            cambio = random.randint(-5, 5)
+            cambio = random.randint(-1, 10)
             precios[moneda] = max(1, precios[moneda] + cambio)
         time.sleep(5)
 
