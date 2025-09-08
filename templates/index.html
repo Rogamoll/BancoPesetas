@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Banco de Pesetas (PTA)</title>
+<style>
+body { font-family: serif; background-color: #fdf5e6; color: #333; padding: 20px; }
+h1 { color: #800000; }
+input, button, select { margin: 5px; }
+hr { margin: 20px 0; }
+</style>
+</head>
+<body>
+
+<h1>Banco de Pesetas (PTA)</h1>
+<p>Bienvenido, {{usuario}}. Saldo: {{saldo}} PTA</p>
+<a href="/logout">Cerrar sesión</a>
+
+{% if usuario == fondador %}
+<hr>
+<h2>Acuñar pesetas (solo fundador)</h2>
+<form action="/acuñar" method="post">
+    Cantidad: <input type="number" name="cantidad" required>
+    <button type="submit">Acuñar</button>
+</form>
+{% endif %}
+
+<hr>
+<h2>Enviar pesetas</h2>
+<form action="/enviar" method="post">
+    A: 
+    <select name="a">
+        {% for u in usuarios %}
+            {% if u != usuario %}
+                <option value="{{u}}">{{u}}</option>
+            {% endif %}
+        {% endfor %}
+    </select>
+    Cantidad: <input type="number" name="cantidad" required>
+    <button type="submit">Enviar</button>
+</form>
+
+<hr>
+<h2>Invertir en criptomonedas o CNC</h2>
+<p id="precios">Precios actuales: BTC {{precios.BTC}}, ETH {{precios.ETH}}, LTC {{precios.LTC}}, CNC {{precios.CNC}}</p>
+
+<h3>Comprar</h3>
+<form action="/invertir" method="post">
+    Moneda/Acción: 
+    <select name="moneda">
+        <option value="BTC">BTC</option>
+        <option value="ETH">ETH</option>
+        <option value="LTC">LTC</option>
+        <option value="CNC">CNC</option>
+    </select>
+    Cantidad: <input type="number" name="cantidad" required>
+    <button type="submit">Comprar</button>
+</form>
+
+<h3>Vender</h3>
+<form action="/vender" method="post">
+    Moneda/Acción: 
+    <select name="moneda">
+        <option value="BTC">BTC</option>
+        <option value="ETH">ETH</option>
+        <option value="LTC">LTC</option>
+        <option value="CNC">CNC</option>
+    </select>
+    Cantidad: <input type="number" name="cantidad" required>
+    <button type="submit">Vender</button>
+</form>
+
+<hr>
+<h2>Portafolio</h2>
+<p>Criptomonedas:</p>
+<ul>
+{% for c, cantidad in cripto.items() %}
+    <li>{{c}}: {{cantidad}}</li>
+{% endfor %}
+</ul>
+
+<p>Acciones:</p>
+<ul>
+{% for a, cantidad in acciones.items() %}
+    <li>{{a}}: {{cantidad}}</li>
+{% endfor %}
+</ul>
+
+<script>
+async function actualizarPrecios() {
+    const resp = await fetch("/precios");
+    const data = await resp.json();
+    document.getElementById("precios").innerText = 
+        `BTC ${data.BTC}, ETH ${data.ETH}, LTC ${data.LTC}, CNC ${data.CNC}`;
+}
+setInterval(actualizarPrecios, 5000); // Cada 5 segundos
+</script>
+
+</body>
+</html>
+
